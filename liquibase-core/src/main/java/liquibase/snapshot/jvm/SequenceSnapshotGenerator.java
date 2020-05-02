@@ -13,8 +13,11 @@ import liquibase.snapshot.InvalidExampleException;
 import liquibase.snapshot.SnapshotIdService;
 import liquibase.statement.core.RawSqlStatement;
 import liquibase.structure.DatabaseObject;
+import liquibase.structure.core.Catalog;
 import liquibase.structure.core.Schema;
 import liquibase.structure.core.Sequence;
+import liquibase.structure.core.Table;
+import liquibase.structure.core.UniqueConstraint;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -234,16 +237,22 @@ public class SequenceSnapshotGenerator extends JdbcSnapshotGenerator {
                     "CYCLE_OPTION AS WILL_CYCLE " +
                     "FROM INFORMATION_SCHEMA.SEQUENCES WHERE SEQUENCE_SCHEMA = '" + schema.getName() + "'";
         } else if (database instanceof SybaseASADatabase) {
-        	return "SELECT SEQUENCE_NAME, " +
+            return "SELECT SEQUENCE_NAME, " +
                     "START_WITH AS START_VALUE, " +
                     "MIN_VALUE, " +
                     "MAX_VALUE, " +
                     "INCREMENT_BY, " +
                     "CYCLE AS WILL_CYCLE " +
                     "FROM SYS.SYSSEQUENCE s " +
-                    "JOIN SYS.SYSUSER u ON s.OWNER = u.USER_ID "+
+                    "JOIN SYS.SYSUSER u ON s.OWNER = u.USER_ID " +
                     "WHERE u.USER_NAME = '" + schema.getName() + "'";
-        	} else {
+        } else if (database instanceof MariaDBDatabase) {
+            return "select TABLE_NAME as SEQUENCE_NAME " +
+                   "from " + database.getSystemSchema() + ".tables " +
+                   "where TABLE_TYPE = 'SEQUENCE' " +
+                   "and TABLE_SCHEMA ='" + database.correctObjectName(schema.getCatalogName(), Catalog.class) + "' " +
+                   "order by TABLE_NAME";
+        } else {
             throw new UnexpectedLiquibaseException("Don't know how to query for sequences on " + database);
         }
 
