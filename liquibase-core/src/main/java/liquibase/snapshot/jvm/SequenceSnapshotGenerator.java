@@ -22,6 +22,7 @@ import liquibase.structure.core.UniqueConstraint;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 
 /**
  * Snapshot generator for a SEQUENCE object in a JDBC-accessible database
@@ -247,11 +248,31 @@ public class SequenceSnapshotGenerator extends JdbcSnapshotGenerator {
                     "JOIN SYS.SYSUSER u ON s.OWNER = u.USER_ID " +
                     "WHERE u.USER_NAME = '" + schema.getName() + "'";
         } else if (database instanceof MariaDBDatabase) {
-            return "select TABLE_NAME as SEQUENCE_NAME " +
-                   "from " + database.getSystemSchema() + ".tables " +
-                   "where TABLE_TYPE = 'SEQUENCE' " +
-                   "and TABLE_SCHEMA ='" + database.correctObjectName(schema.getCatalogName(), Catalog.class) + "' " +
-                   "order by TABLE_NAME";
+            StringJoiner j = new StringJoiner(" \n UNION\n");
+            try {
+                List<Map<String, ?>> res = ExecutorService.getInstance()
+                        .getExecutor(database)
+                        .queryForList(new RawSqlStatement("select table_name AS SEQUENCE_NAME " +
+                                "from information_schema.TABLES " +
+                                "where TABLE_SCHEMA = '" + schema.getName() +"' " +
+                                "and TABLE_TYPE = 'SEQUENCE' order by table_name;"));
+                if (res.size() == 0) {
+                    return "SELECT 'name' AS SEQUENCE_NAME from dual WHERE 1=0";
+                }
+                for (Map<String, ?> e : res) {
+                    String seqName = (String) e.get("SEQUENCE_NAME");
+                    j.add(String.format("SELECT '%s' AS SEQUENCE_NAME, " +
+                            "START_VALUE AS START_VALUE, " +
+                            "MINIMUM_VALUE AS MIN_VALUE, " +
+                            "MAXIMUM_VALUE AS MAX_VALUE, " +
+                            "INCREMENT AS INCREMENT_BY, " +
+                            "CYCLE_OPTION AS WILL_CYCLE " +
+                            "FROM %s ", seqName, seqName));
+                }
+            } catch (DatabaseException e) {
+                throw new UnexpectedLiquibaseException("Could not get list of schemas ", e);
+            }
+            return j.toString();
         } else {
             throw new UnexpectedLiquibaseException("Don't know how to query for sequences on " + database);
         }
